@@ -78,13 +78,8 @@ class IFCBClient:
         self.hub_connection.send("relayMessageToHost", [self.ifcb_id, message])
 
     def handle_message(self, response):
-        id = response[0]
-        smsgsrc = response[1]
-        index = response[2]
-        message = response[3]
-        separatorIndex = message.find(":")
-        msgType = message[:separatorIndex]
-        msg = message[separatorIndex + 1 :]
+        sender_id, smsgsrc, seqno, msg = response
+        msgType, _, msg = msg.partition(":")
 
         if msgType.startswith("reportevent"):
             print("report: " + msg, end="")
@@ -111,9 +106,7 @@ class IFCBClient:
         elif msgType.startswith("movevalvefinished"):
             print("Valve moved: " + msg)
         elif msgType.startswith("valuechanged"):
-            msgSeparatorIndex = msg.find(":")
-            source = msg[:msgSeparatorIndex]
-            state = msg[msgSeparatorIndex + 1 :]
+            source, _, state = msg.partition(":")
             if source.startswith("fpsrate"):
                 print("trigger rate: " + "{:.1f}".format(float(state)) + " FPS")
             elif source.startswith("acquisition"):
@@ -129,9 +122,7 @@ class IFCBClient:
                 if states[0].startswith("status"):
                     print("running: " + states[1])
         elif msgType.startswith("file"):
-            fileSeparatorIndex = msg.find(":")
-            fileMsgType = msg[:fileSeparatorIndex]
-            fileStrParameters = msg[fileSeparatorIndex + 1 :]
+            fileMsgType, _, fileStrParameters = msg.partition(":")
             if fileMsgType.startswith("list"):
                 fileParameters = fileStrParameters.split(":")
                 print("file list:")
@@ -143,12 +134,10 @@ class IFCBClient:
                     fileParameters[0], int(fileParameters[1]), fileParameters[2]
                 )
             elif fileMsgType.startswith("chunk"):
-                chunkSeparatorIndex = fileStrParameters.find(":")
-                fileName = fileStrParameters[:chunkSeparatorIndex]
-                fileStrParameters = fileStrParameters[chunkSeparatorIndex + 1 :]
-                chunkSeparatorIndex = fileStrParameters.find(":")
-                chunkIndex = int(fileStrParameters[:chunkSeparatorIndex])
-                chunk = fileStrParameters[chunkSeparatorIndex + 1 :]
+                fileName, _, fileStrParameters = \
+                    fileStrParameters.partition(":")
+                chunkIndex, _, chunk = fileStrParameters.partition(":")
+                chunkIndex = int(chunkIndex)
                 self.downloadFile.add(chunkIndex, chunk)
             elif fileMsgType.startswith("end"):
                 self.downloadFile.save("c:\Test")
