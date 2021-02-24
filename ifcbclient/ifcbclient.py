@@ -67,15 +67,11 @@ class IFCBClient:
         pass
 
     def started(self, response):
-        self.hub_connection.send(
-            "relayMessageToHost", [self.ifcb_id, "Client connected."]
-        )
-        self.hub_connection.send("relayMessageToHost", [self.ifcb_id, "refresh"])
+        self.relay_message_to_host("Client connected.")
+        self.relay_message_to_host("refresh")
 
     def disconnect(self):
-        self.hub_connection.send(
-            "relayMessageToHost", [self.ifcb_id, "Client disconnected."]
-        )
+        self.relay_message_to_host("Client disconnected.")
         self.hub_connection.stop()
 
     def relay_message_to_host(self, message):
