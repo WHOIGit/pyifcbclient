@@ -150,6 +150,3 @@ class IFCBClient:
                 self.downloadFile.add(chunkIndex, chunk)
             elif fileMsgType.startswith("end"):
                 self.downloadFile.save("c:\Test")
-
-
-__all__ = ["IFCBClient"]
