@@ -31,12 +31,10 @@ class FileData:
 
 
 class IFCBClient:
-    def do_nothing(self, response):
-        pass
-
-    def connect(self, server, id):
+    def __init__(self, server, id, autoconnect=True):
         self.server_url = server
         self.ifcb_id = id
+
         self.hub_connection = (
             HubConnectionBuilder()
             .with_url(self.server_url)
@@ -56,9 +54,17 @@ class IFCBClient:
         self.hub_connection.on("messageRelayed", self.handle_message)
         self.hub_connection.on("startedAsClient", self.started)
         self.hub_connection.on("disconnect", self.disconnect)
+
+        if autoconnect:
+            self.connect()
+
+    def connect(self):
         self.hub_connection.start()
         time.sleep(2)
         self.hub_connection.send("startAsClient", [self.ifcb_id])
+
+    def do_nothing(self, response):
+        pass
 
     def started(self, response):
         self.hub_connection.send(
