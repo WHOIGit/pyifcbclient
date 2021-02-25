@@ -50,6 +50,7 @@ class IFCBClient:
             .build()
         )
 
+        self.hub_connection.on_open(self.on_connect)
         self.hub_connection.on("heartbeat", self.do_nothing)
         self.hub_connection.on("messageRelayed", self.handle_message)
         self.hub_connection.on("startedAsClient", self.started)
@@ -60,7 +61,8 @@ class IFCBClient:
 
     def connect(self):
         self.hub_connection.start()
-        time.sleep(2)
+
+    def on_connect(self):
         self.hub_connection.send("startAsClient", [self.ifcb_id])
 
     def do_nothing(self, response):
