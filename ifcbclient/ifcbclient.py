@@ -14,7 +14,7 @@ class FileData:
         self.chunks = [None] * self.chunkCount
 
     def add(self, index, chunk):
-        if self.type.startswith("octet/stream"):
+        if self.type == "octet/stream":
             base64_bytes = chunk.encode("utf-8")
             decoded_bytes = base64.decodebytes(base64_bytes)
             self.chunks[index] = decoded_bytes
@@ -24,7 +24,7 @@ class FileData:
     def save(self, folderToSave):
         with open(
             os.path.join(folderToSave, self.fileName),
-            "w" if self.type.startswith("text/plain") else "wb",
+            "w" if self.type == "text/plain" else "wb",
         ) as fileToWrite:
             for chunk in self.chunks:
                 fileToWrite.write(chunk)
@@ -81,11 +81,11 @@ class IFCBClient:
         sender_id, smsgsrc, seqno, msg = response
         msgType, _, msg = msg.partition(":")
 
-        if msgType.startswith("reportevent"):
+        if msgType == "reportevent":
             print("report: " + msg, end="")
-        elif msgType.startswith("triggerchanged"):
+        elif msgType == "triggerchanged":
             triggerParameters = msg.split(":")
-            if triggerParameters[1].find("processed") >= 0:
+            if triggerParameters[1] == "processed":
                 print(
                     "Trigger: #"
                     + triggerParameters[0]
@@ -94,50 +94,40 @@ class IFCBClient:
                     + " Total ROIs: "
                     + triggerParameters[4]
                 )
-            elif triggerParameters[1].find("saved") >= 0:
+            elif triggerParameters[1] == "saved":
                 print(
                     "Triggers saved: "
                     + triggerParameters[2]
                     + ", Triggers skipped: "
                     + triggerParameters[3]
                 )
-        elif msgType.startswith("syringetrack"):
+        elif msgType == "syringetrack":
             print("syringe position: " + msg)
-        elif msgType.startswith("movevalvefinished"):
+        elif msgType == "movevalvefinished":
             print("Valve moved: " + msg)
-        elif msgType.startswith("valuechanged"):
+        elif msgType == "valuechanged":
             source, _, state = msg.partition(":")
-            if source.startswith("fpsrate"):
+            if source == "fpsrate":
                 print("trigger rate: " + "{:.1f}".format(float(state)) + " FPS")
-            elif source.startswith("acquisition"):
-                acquisitionSeparatorIndex = state.find(":")
-                states = [
-                    state[:acquisitionSeparatorIndex]
-                    if acquisitionSeparatorIndex > 0
-                    else state,
-                    state[acquisitionSeparatorIndex + 1 :]
-                    if acquisitionSeparatorIndex > 0
-                    else "",
-                ]
-                if states[0].startswith("status"):
-                    print("running: " + states[1])
-        elif msgType.startswith("file"):
+            elif source == "acquisition":
+                kind, _, status = state.partition(":")
+                if kind == "status":
+                    print("running: " + status)
+        elif msgType == "file":
             fileMsgType, _, fileStrParameters = msg.partition(":")
-            if fileMsgType.startswith("list"):
+            if fileMsgType == "list":
                 fileParameters = fileStrParameters.split(":")
                 print("file list:")
                 for fileParameter in fileParameters:
                     print(fileParameter)
-            elif fileMsgType.startswith("start"):
-                fileParameters = fileStrParameters.split(":")
-                self.downloadFile = FileData(
-                    fileParameters[0], int(fileParameters[1]), fileParameters[2]
-                )
-            elif fileMsgType.startswith("chunk"):
+            elif fileMsgType == "start":
+                fileName, numChunks, fileType = fileStrParameters.split(":")
+                self.downloadFile = FileData(fileName, int(numChunks), fileType)
+            elif fileMsgType == "chunk":
                 fileName, _, fileStrParameters = \
                     fileStrParameters.partition(":")
                 chunkIndex, _, chunk = fileStrParameters.partition(":")
                 chunkIndex = int(chunkIndex)
                 self.downloadFile.add(chunkIndex, chunk)
-            elif fileMsgType.startswith("end"):
+            elif fileMsgType == "end":
                 self.downloadFile.save("c:\Test")
