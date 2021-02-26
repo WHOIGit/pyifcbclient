@@ -1,33 +1,11 @@
 import base64
 import logging
 import os
-import time
+import traceback
 
 from signalrcore.hub_connection_builder import HubConnectionBuilder
 
-
-class FileData:
-    def __init__(self, fileName, chunkCount, type):
-        self.fileName = fileName
-        self.chunkCount = chunkCount
-        self.type = type
-        self.chunks = [None] * self.chunkCount
-
-    def add(self, index, chunk):
-        if self.type == "octet/stream":
-            base64_bytes = chunk.encode("utf-8")
-            decoded_bytes = base64.decodebytes(base64_bytes)
-            self.chunks[index] = decoded_bytes
-        else:
-            self.chunks[index] = chunk
-
-    def save(self, folderToSave):
-        with open(
-            os.path.join(folderToSave, self.fileName),
-            "w" if self.type == "text/plain" else "wb",
-        ) as fileToWrite:
-            for chunk in self.chunks:
-                fileToWrite.write(chunk)
+from .protocol import parse_response
 
 
 class IFCBClient:
@@ -81,55 +59,8 @@ class IFCBClient:
 
     def handle_message(self, response):
         sender_id, smsgsrc, seqno, msg = response
-        msgType, _, msg = msg.partition(":")
-
-        if msgType == "reportevent":
-            print("report: " + msg, end="")
-        elif msgType == "triggerchanged":
-            triggerParameters = msg.split(":")
-            if triggerParameters[1] == "processed":
-                print(
-                    "Trigger: #"
-                    + triggerParameters[0]
-                    + " ROIs: "
-                    + triggerParameters[2]
-                    + " Total ROIs: "
-                    + triggerParameters[4]
-                )
-            elif triggerParameters[1] == "saved":
-                print(
-                    "Triggers saved: "
-                    + triggerParameters[2]
-                    + ", Triggers skipped: "
-                    + triggerParameters[3]
-                )
-        elif msgType == "syringetrack":
-            print("syringe position: " + msg)
-        elif msgType == "movevalvefinished":
-            print("Valve moved: " + msg)
-        elif msgType == "valuechanged":
-            source, _, state = msg.partition(":")
-            if source == "fpsrate":
-                print("trigger rate: " + "{:.1f}".format(float(state)) + " FPS")
-            elif source == "acquisition":
-                kind, _, status = state.partition(":")
-                if kind == "status":
-                    print("running: " + status)
-        elif msgType == "file":
-            fileMsgType, _, fileStrParameters = msg.partition(":")
-            if fileMsgType == "list":
-                fileParameters = fileStrParameters.split(":")
-                print("file list:")
-                for fileParameter in fileParameters:
-                    print(fileParameter)
-            elif fileMsgType == "start":
-                fileName, numChunks, fileType = fileStrParameters.split(":")
-                self.downloadFile = FileData(fileName, int(numChunks), fileType)
-            elif fileMsgType == "chunk":
-                fileName, _, fileStrParameters = \
-                    fileStrParameters.partition(":")
-                chunkIndex, _, chunk = fileStrParameters.partition(":")
-                chunkIndex = int(chunkIndex)
-                self.downloadFile.add(chunkIndex, chunk)
-            elif fileMsgType == "end":
-                self.downloadFile.save("c:\Test")
+        try:
+            print(msg, parse_response(msg))
+        except:
+            # signalrcore consumes all exceptions, so we need to catch it
+            traceback.print_exc()
