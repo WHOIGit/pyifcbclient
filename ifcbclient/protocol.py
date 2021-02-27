@@ -15,7 +15,6 @@ fixed_length_responses = [
     ("triggerimage",str),
     ("graphchanged",float,float,float,float,int,int,int,float,float,float,float,str),
     ("file","start",str,int,str),
-    ("file","chunk",str,int,str),
     ("file","end",str),
     ("valuechanged","acquisition","status",str),
     ("valuechanged","acquisition","started"),
@@ -130,16 +129,22 @@ def parse_response(m):
             # Reached if we threw an exception; try next candidate response
             continue
     
-    # Is it a variable-length message?
+    # Handle variable-length messages, and those with string parameters which
+    # might contain our delimiter character (they must come last)
     if matched:
         pass
 
     elif args[0] == "reportevent":
-        # The reportevent string may contain the delimiter colon, which we do
-        # not want to split on.
         parsed_args = [ args[0], ":".join(args[1:]) ]
+    
+    elif args[:2] == ["file", "chunk"]:
+        parsed_args = args[:3] + [ int(args[3]), ":".join(args[4:]) ]
+    
+    elif args[:3] == ["valuechanged", "interactive", "load"]:
+        parsed_args = args[:3] + json.loads(":".join(args[3:]))
 
     elif args[:2] == ["file", "list"]:
+        # Combine all arguments into a list
         parsed_args = args[0:2] + [ args[2:] ]
     
     elif args[0] == "triggerrois":
@@ -170,13 +175,11 @@ def parse_response(m):
 
     # Fix up some special arguments
     if parsed_args[0] == "triggerimage":
+        # Base64 cannot contain the delimiter character, so we're safe
         parsed_args[1] = base64.b64decode(parsed_args[1])
 
     elif parsed_args[0] == "graphchanged":
         parsed_args[-1] = datetime.datetime.strptime(
             parsed_args[-1], "%Y-%m-%d|%H-%M")
-
-    elif parsed_args[:3] == ["valuechanged", "interactive", "load"]:
-        parsed_args[3] = json.loads(parsed_args[3])
 
     return parsed_args
