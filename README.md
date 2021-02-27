@@ -21,6 +21,8 @@ from ifcbclient import IFCBClient
 client = IFCBClient("ws://192.168.1.100/ifcbHub", "111-111-111")
 ```
 
+### Event Handling
+
 Before connecting, it is useful to attach event handlers for different kinds of messages:
 
 ```python
@@ -41,15 +43,29 @@ client.on(("valuechanged", "pausestate"), pause_handler)
 
 Please consult the IFCB documentation for the message specification.
 
-This module provides only basic support for splitting messages into constituent fields and converting them to Python types. Python `list` objects and `tuple`s are synthesized for arguments of some variable-length messages. Base64 and JSON fields are decoded, except for `file:chunk` messages where the format is ambiguous. If support for a particular message is missing, please [file a bug][].
+This module provides only basic support for splitting messages into constituent fields and converting them to Python types. Python `list`s and `tuple`s are synthesized for arguments of some variable-length messages; the list length parameters are dropped. Base64 and JSON fields are decoded, except for `file:chunk` messages where the format is ambiguous. If support for a particular message is missing, please [file a bug][].
 
 [file a bug]: https://github.com/WHOIGit/pyifcbclient/issues/new
 
-After handlers are configured, the client can be connected. This starts a background thread for communicating with the IFCB. (Be sure to keep your main thread alive, or the program will terminate.)
+If you need to unregister an event handler, use the handler ID returned by the `IFCBClient.on()` method:
+
+```python
+handler_id = client.on(("valuechanged", "pausestate"), pause_handler)
+client.unregister(handler_id)
+```
+
+
+### Connecting and Disconnecting
+
+Connecting the client starts a background thread for communicating with the IFCB. (Be sure to keep your main thread alive, or the program will terminate.)
 
 ```python
 client.connect()
+client.disconnect()
 ```
+
+
+### Issuing Commands
 
 Commands can be sent to the IFCB. Currently, commands must be passed as strings:
 

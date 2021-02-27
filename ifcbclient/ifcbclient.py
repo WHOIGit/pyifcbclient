@@ -1,6 +1,4 @@
-import base64
 import logging
-import os
 import traceback
 
 from signalrcore.hub_connection_builder import HubConnectionBuilder
@@ -13,7 +11,8 @@ class IFCBClient:
         self.server_url = server
         self.ifcb_id = id
 
-        self.handlers = []
+        self.handlers = {}
+        self.next_handler_id = 0
 
         self.hub_connection = (
             HubConnectionBuilder()
@@ -60,7 +59,7 @@ class IFCBClient:
         sender_id, smsgsrc, seqno, msg = response
         try:
             fields = parse_response(msg)
-            for pattern, callback in self.handlers:
+            for pattern, callback in self.handlers.values():
                 for field, value in zip(fields, pattern):
                     if value is None:
                         continue
@@ -81,4 +80,10 @@ class IFCBClient:
 
         A pattern is a sequence of constants and None. None matches any value.
         '''
-        self.handlers.append((prefix_pattern, callback))
+        handler_id = self.next_handler_id
+        self.next_handler_id += 1
+        self.handlers[handler_id] = (prefix_pattern, callback)
+        return handler_id
+
+    def unregister(self, handler_id):
+        del self.handlers[handler_id]
