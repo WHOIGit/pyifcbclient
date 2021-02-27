@@ -9,7 +9,7 @@ This repository implements an unofficial API client for the [McLane Research Lab
 
 The latest version of this package can be installed using `pip`:
 
-    pip install https://github.com/WHOIGit/pyifcbclient.git
+    pip install git+https://github.com/WHOIGit/pyifcbclient.git
 
 
 ## Usage
