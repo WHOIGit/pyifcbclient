@@ -55,6 +55,8 @@ fixed_length_responses = [
     ("valuechanged","switchviewfps",bool),
     ("valuechanged","switchviewsyringe",bool),
     ("valuechanged","switchviewvalve",bool),
+    ("valuechanged","switchauxpower1",bool),
+    ("valuechanged","switchtriggering",bool),
     ("valuechanged","setpmta",float),
     ("valuechanged","settriga",float),
     ("valuechanged","setpmtb",float),
@@ -166,6 +168,14 @@ def parse_response(m):
     elif args[:3] == ["valuechanged", "interactive", "liststeps"]:
         # TODO: This complex message type is not handled
         parsed_args = args
+
+    elif args[:2] == ["valuechanged", "currentgpsposition"]:
+        # TODO: Parse GPS coordinates (or "n/a")
+        parsed_args = args[:2] + [ ":".join(args[2:]) ]
+
+    elif args[:2] == ["valuechanged", "samplegpsposition"]:
+        # TODO: Parse GPS coordinates (or "n/a")
+        parsed_args = args[:2] + [ ":".join(args[2:]) ]
 
     else:
         # We still haven't matched it, abandon all hope
