@@ -22,6 +22,7 @@ class TestIFCBClient(unittest.TestCase):
         self.client.connect()
         self.client.hub_connection.start.assert_called()
 
+
     def test_pattern_prefix(self):
         callback = mock.Mock()
         self.client.on(("valuechanged",), callback)
@@ -53,3 +54,13 @@ class TestIFCBClient(unittest.TestCase):
         self.client.unregister(handler_id)
         self.simulate_message("valuechanged:acquisition:started")
         callback.assert_called_once()
+
+
+    def test_parse_triggerrois(self):
+        callback = mock.Mock()
+        self.client.on(("triggerrois",), callback)
+        self.simulate_message("triggerrois:2:0:0:AAAA:5:5:BBBB")
+        callback.assert_called_once_with(
+            'triggerrois',
+            [('0', '0', b'\x00\x00\x00'), ('5', '5', b'\x04\x10A')]
+        )

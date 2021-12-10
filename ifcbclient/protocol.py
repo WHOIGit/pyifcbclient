@@ -152,13 +152,12 @@ def parse_response(m):
     elif args[0] == "triggerrois":
         rois = []
         count = int(args[1])
-        if len(args) != 2 + count * 5:
+        if len(args) != 2 + count * 3:
             raise ValueError("Incorrect number of ROIs")
         for i in range(count):
-            top, left = args[5*i+2], args[5*i+3]
-            image = base64.b64decode(args[5*i+4])
-            width, height = args[5*i+5], [5*i+6]
-            rois.append((top, left, image, width, height))
+            top, left = args[3*i+2], args[3*i+3]
+            image = base64.b64decode(args[3*i+4])
+            rois.append((top, left, image))
         parsed_args = ["triggerrois", rois]
     
     elif args[:3] == ["valuechanged", "interactive", "listgroups"]:
