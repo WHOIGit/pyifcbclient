@@ -31,8 +31,8 @@ Before connecting, it is useful to attach event handlers for different kinds of 
 #     valuechanged:pausestate:1  # paused
 
 # Each field is split apart, converted to the native Python type, and passed to
-# our handler. Use _ for parameters you don't care about.
-def pause_handler(_, _, is_paused):
+# our handler. Use underscores for parameters you don't care about.
+def pause_handler(_, __, is_paused):
     print("acquisition is now", "paused" if is_paused else "unpaused")
 
 # Register the handler to be called when one of these messages arrives.
