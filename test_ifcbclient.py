@@ -62,5 +62,5 @@ class TestIFCBClient(unittest.TestCase):
         self.simulate_message("triggerrois:2:0:0:AAAA:5:5:BBBB")
         callback.assert_called_once_with(
             'triggerrois',
-            [('0', '0', b'\x00\x00\x00'), ('5', '5', b'\x04\x10A')]
+            [(0, 0, b'\x00\x00\x00'), (5, 5, b'\x04\x10A')]
         )
