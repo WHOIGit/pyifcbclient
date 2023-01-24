@@ -160,6 +160,17 @@ def parse_response(m):
             rois.append((top, left, image))
         parsed_args = ["triggerrois", rois]
     
+    elif args[0] == "triggercontent":
+        rois = []
+        daq_name = args[2]
+        daq_value = float(args[3])
+        count = int(args[5])
+        for i in range(count):
+            top, left = int(args[3*i+6]), int(args[3*i+7])
+            image = base64.b64decode(args[3*i+8])
+            rois.append((top, left, image))
+        parsed_args = ["triggercontent", daq_name, daq_value, rois]
+        
     elif args[:3] == ["valuechanged", "interactive", "listgroups"]:
         # TODO: This complex message type is not handled
         parsed_args = args
