@@ -66,13 +66,27 @@ class TestIFCBClient(unittest.TestCase):
         )
 
 
-    def test_parse_triggerconent(self):
+    def test_parse_triggercontent(self):
         callback = mock.Mock()
         self.client.on(("triggercontent",), callback)
-        self.simulate_message("triggercontent:daq:mydaq:1.0:rois:2:0:0:AAAA:5:5:BBBB")
+        self.simulate_message("triggercontent:daq:ADCTime:4295.101:GrabTimeStart:4295.101:GrabTimeEnd:4338.461:PeakA:0.016:PeakB:0.261:PeakC:0.010:PeakD:0.010:IntegratedA:0.004:IntegratedB:0.016:IntegratedC:0.000:IntegratedD:0.001:TimeOfFlight:58.695:RunTime:4.317:InhibitTime:0.420:rois:2:0:0:AAAA:5:5:BBBB")
         callback.assert_called_once_with(
             'triggercontent',
-            'mydaq',
-            1.0,
+            {
+                'ADCTime': 4295.101,
+                'GrabTimeStart': 4295.101,
+                'GrabTimeEnd': 4338.461,
+                'PeakA': 0.016,
+                'PeakB': 0.261,
+                'PeakC': 0.010,
+                'PeakD': 0.010,
+                'IntegratedA': 0.004,
+                'IntegratedB': 0.016,
+                'IntegratedC': 0.000,
+                'IntegratedD': 0.001,
+                'TimeOfFlight': 58.695,
+                'RunTime': 4.317,
+                'InhibitTime': 0.420,
+            },
             [(0,0, b'\x00\x00\x00'), (5, 5, b'\x04\x10A')]
         )
