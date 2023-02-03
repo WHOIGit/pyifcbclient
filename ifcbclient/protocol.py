@@ -130,7 +130,7 @@ def parse_response(m):
         except ValueError:
             # Reached if we threw an exception; try next candidate response
             continue
-    
+
     # Handle variable-length messages, and those with string parameters which
     # might contain our delimiter character (they must come last)
     if matched:
@@ -138,17 +138,17 @@ def parse_response(m):
 
     elif args[0] == "reportevent":
         parsed_args = [ args[0], ":".join(args[1:]) ]
-    
+
     elif args[:2] == ["file", "chunk"]:
         parsed_args = args[:3] + [ int(args[3]), ":".join(args[4:]) ]
-    
+
     elif args[:3] == ["valuechanged", "interactive", "load"]:
         parsed_args = args[:3] + json.loads(":".join(args[3:]))
 
     elif args[:2] == ["file", "list"]:
         # Combine all arguments into a list
         parsed_args = args[0:2] + [ args[2:] ]
-    
+
     elif args[0] == "triggerrois":
         rois = []
         count = int(args[1])
@@ -159,11 +159,27 @@ def parse_response(m):
             image = base64.b64decode(args[3*i+4])
             rois.append((top, left, image))
         parsed_args = ["triggerrois", rois]
-    
+
+    elif args[0] == "triggercontent":
+        daq = {}
+        ri = args.index("rois")
+        for i in range(2, ri-1, 2):
+            # Currently, all DAQ values are floating point
+            daq[args[i]] = float(args[i+1])
+
+        rois = []
+        count = int(args[ri+1])
+        for i in range(count):
+            top, left = int(args[3*i+ri+2]), int(args[3*i+ri+3])
+            image = base64.b64decode(args[3*i+ri+4])
+            rois.append((top, left, image))
+
+        parsed_args = ["triggercontent", daq, rois]
+
     elif args[:3] == ["valuechanged", "interactive", "listgroups"]:
         # TODO: This complex message type is not handled
         parsed_args = args
-    
+
     elif args[:3] == ["valuechanged", "interactive", "liststeps"]:
         # TODO: This complex message type is not handled
         parsed_args = args
