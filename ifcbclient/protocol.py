@@ -61,6 +61,7 @@ fixed_length_responses = [
     ("valuechanged","switchfolderhierarchy",bool),
     ("valuechanged","switchinteractiveautostart",bool),
     ("valuechanged","switchoutputfiles",bool),
+    ("valuechanged","switchuvwithsample",bool),
     ("valuechanged","setbiocidevolume",int),
     ("valuechanged","setbleachrinsevolume",int),
     ("valuechanged","setbleachvolume",int),
@@ -113,6 +114,7 @@ fixed_length_responses = [
     ("valuechanged","movefocus",int),
     ("valuechanged","movelaser",int),
     ("valuechanged","fpsrate",float),
+    ("valuechanged","uvmodulepresent",bool),
 ]
 
 
