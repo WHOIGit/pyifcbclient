@@ -6,6 +6,7 @@ import json
 fixed_length_responses = [
     ("client","reset"),
     ("client","disconnected"),
+    ("client","enableroutines"),
     ("syringetrack",float),
     ("movevalvestarted",str,str),
     ("movevalvefinished",str),
