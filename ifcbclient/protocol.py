@@ -7,6 +7,7 @@ fixed_length_responses = [
     ("client","reset"),
     ("client","disconnected"),
     ("client","enableroutines"),
+    ("client","disableroutines"),
     ("syringetrack",float),
     ("movevalvestarted",str,str),
     ("movevalvefinished",str),
@@ -116,6 +117,10 @@ fixed_length_responses = [
     ("valuechanged","movelaser",int),
     ("valuechanged","fpsrate",float),
     ("valuechanged","uvmodulepresent",bool),
+    ("valuechanged","switchpromptfilecomment",bool),
+    ("valuechanged","setzoomsize",int,int),
+    ("valuechanged","switchviewzoom",bool),
+    ("valuechanged","hostversion",str),
 ]
 
 
