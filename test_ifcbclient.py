@@ -66,6 +66,20 @@ class TestIFCBClient(unittest.TestCase):
         )
 
 
+    def test_parse_client_enableroutines(self):
+        callback = mock.Mock()
+        self.client.on(("client", "enableroutines"), callback)
+        self.simulate_message("client:enableroutines")
+        callback.assert_called_once_with("client", "enableroutines")
+
+
+    def test_parse_client_disableroutines(self):
+        callback = mock.Mock()
+        self.client.on(("client", "disableroutines"), callback)
+        self.simulate_message("client:disableroutines")
+        callback.assert_called_once_with("client", "disableroutines")
+
+
     def test_parse_triggercontent(self):
         callback = mock.Mock()
         self.client.on(("triggercontent",), callback)
