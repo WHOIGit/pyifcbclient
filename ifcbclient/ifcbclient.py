@@ -23,7 +23,6 @@ class IFCBClient:
                     "type": "raw",
                     "keep_alive_interval": 10,
                     "reconnect_interval": 5,
-                    "max_attempts": 5,
                 }
             )
             .build()
@@ -84,6 +83,15 @@ class IFCBClient:
         self.next_handler_id += 1
         self.handlers[handler_id] = (prefix_pattern, callback)
         return handler_id
+
+    def on_started(self, callback):
+        self.hub_connection.on('startedAsClient', callback)
+
+    def on_reconnect(self, callback):
+        self.hub_connection.on_reconnect(callback)
+
+    def on_any_message(self, callback):
+        self.hub_connection.on('messageRelayed', callback)
 
     def unregister(self, handler_id):
         del self.handlers[handler_id]
