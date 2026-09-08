@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from distutils.core import setup
+from setuptools import setup
 
 
 setup(
@@ -10,5 +10,5 @@ setup(
     author_email="rgovostes@whoi.edu",
     url="https://github.com/WHOIGit/pyifcbclient",
     packages=["ifcbclient"],
-    install_requires=["signalrcore"],
+    install_requires=["signalrcore>=1.0.2"],
 )
