@@ -90,3 +90,11 @@ class TestIFCBClient(unittest.TestCase):
             },
             [(0,0, b'\x00\x00\x00'), (5, 5, b'\x04\x10A')]
         )
+
+    def test_parse_getenvironment(self):
+        # Reply to 'daq:getenvironment' from the housekeeping sensor: humidity
+        # (%) first, then temperature (C)
+        callback = mock.Mock()
+        self.client.on(("valuechanged", "getenvironment"), callback)
+        self.simulate_message("valuechanged:getenvironment:45.21:31.70")
+        callback.assert_called_with("valuechanged", "getenvironment", 45.21, 31.70)
