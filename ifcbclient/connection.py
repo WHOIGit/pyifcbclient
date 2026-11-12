@@ -236,6 +236,7 @@ class ConnectionManager:
                 if self.stopping:
                     return
                 self.active = True
+                self.owner._notify(None, 'connecting')
 
             # Attach internal callbacks before opening the new transport
             client = None
@@ -295,8 +296,9 @@ class ConnectionManager:
 
             # The same lifecycle handles one-shot and automatically retried use
             with self.condition:
-                if not self.owner.auto_reconnect:
+                if self.stopping or not self.owner.auto_reconnect:
                     return
+                self.owner._notify(client, 'retry', self.retry)
                 if self.condition.wait_for(lambda: self.stopping, self.retry):
                     return
                 self.retry = min(self.retry * 1.5, MAX_RETRY_INTERVAL)

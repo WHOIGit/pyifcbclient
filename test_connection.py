@@ -41,6 +41,7 @@ class TestConnectionManager(unittest.TestCase):
         self.clients = []
         self.status = []
         self.logs = []
+        self.retry_delays = []
         self.now = 100.0
         self.factory_error = False
         self.auto_reconnect = True
@@ -71,6 +72,8 @@ class TestConnectionManager(unittest.TestCase):
             self.status.append(args[0])
         elif event == 'error':
             self.logs.append(str(args[0]))
+        elif event == 'retry':
+            self.retry_delays.append(args[0])
 
     def _make_connection(self):
         if self.factory_error:
@@ -149,6 +152,10 @@ class TestConnectionManager(unittest.TestCase):
         client.disconnected()
         self.await_client(4)
         self.assertAlmostEqual(self.manager.retry, 0.03)
+        self.assertEqual(len(self.retry_delays), 4)
+        for actual, expected in zip(self.retry_delays,
+                                    [0.02, 0.03, 0.045, 0.02]):
+            self.assertAlmostEqual(actual, expected)
 
     def test_constructor_failure_retries_and_shutdown_remains_available(self):
         self.factory_error = True

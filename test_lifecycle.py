@@ -115,7 +115,11 @@ class TestClientLifecycle(unittest.TestCase):
     def test_disabling_reconnection_stops_after_one_attempt(self):
         client = self.make_client(auto_reconnect=False)
         closed = mock.Mock()
+        connecting = mock.Mock()
+        retry = mock.Mock()
         client.on_close(closed)
+        client.on_connecting(connecting)
+        client.on_retry(retry)
         client.connect(background=True)
         hub = self.next_hub()
         hub.emit('disconnect', ['host unavailable'])
@@ -125,6 +129,8 @@ class TestClientLifecycle(unittest.TestCase):
         self.assertEqual(len(self.hubs), 1)
         self.flush_callbacks(client)
         closed.assert_called_once_with(['host unavailable'])
+        connecting.assert_called_once_with()
+        retry.assert_not_called()
         self.builder.with_automatic_reconnect.assert_not_called()
 
     def test_registration_grants_readiness_after_initialization(self):
@@ -206,6 +212,8 @@ class TestClientLifecycle(unittest.TestCase):
     def test_callbacks_survive_reconnect_and_stale_events_are_ignored(self):
         client = self.make_client()
         ready = []
+        connecting = mock.Mock()
+        retry = mock.Mock()
         registered = mock.Mock()
         heartbeat = mock.Mock()
         reconnected = mock.Mock()
@@ -213,6 +221,8 @@ class TestClientLifecycle(unittest.TestCase):
         parsed = mock.Mock()
         raw = mock.Mock()
         client.on_ready(ready.append)
+        client.on_connecting(connecting)
+        client.on_retry(retry)
         client.on_started(registered)
         client.on_heartbeat(heartbeat)
         client.on_reconnect(reconnected)
@@ -229,6 +239,8 @@ class TestClientLifecycle(unittest.TestCase):
         self.builder.with_automatic_reconnect.assert_not_called()
         self.flush_callbacks(client)
         self.assertEqual(ready, [False, True, False])
+        self.assertEqual(connecting.call_count, 2)
+        retry.assert_called_once_with(0.01)
         with self.assertRaises(ConnectionError):
             client.relay_message_to_host('offline', timeout=0)
         old_sends = list(first.send.call_args_list)
@@ -323,10 +335,12 @@ class TestClientLifecycle(unittest.TestCase):
                          'IFCB registration timed out')
 
     def test_stop_is_local_idempotent_and_reports_close_once(self):
-        client = self.make_client(auto_reconnect=False)
+        client = self.make_client()
         closed = mock.Mock()
+        retry = mock.Mock()
         ready = []
         client.on_close(closed)
+        client.on_retry(retry)
         client.on_ready(ready.append)
         client.connect(background=True)
         hub = self.next_hub()
@@ -341,6 +355,7 @@ class TestClientLifecycle(unittest.TestCase):
         hub.send.assert_not_called()
         self.flush_callbacks(client)
         closed.assert_called_once_with()
+        retry.assert_not_called()
         self.assertEqual(ready, [False, True, False])
         with self.assertRaises(ConnectionError):
             client.relay_message_to_host('after stop', timeout=0)
@@ -419,9 +434,12 @@ class TestClientLifecycle(unittest.TestCase):
             ('messageRelayed', 'on_any_message',
              ([0, 0, 0, 'syringetrack:1.5'],)),
             ('close', 'on_close', ()),
+            ('close', 'on_retry', ()),
         ]:
-            with self.subTest(event=event):
-                client = self.make_client(auto_reconnect=False)
+            with self.subTest(event=event, callback=subscribe):
+                client = self.make_client(
+                    auto_reconnect=(subscribe == 'on_retry')
+                )
                 stopped = threading.Event()
 
                 def stop(*args, client=client, stopped=stopped):
@@ -435,6 +453,11 @@ class TestClientLifecycle(unittest.TestCase):
                 if event != 'startedAsClient':
                     hub.emit('startedAsClient', [])
                     self.wait_registered(client)
+
+                # A retry observer can cancel a long wait by stopping
+                if subscribe == 'on_retry':
+                    with client._connection.condition:
+                        client._connection.retry = 60
 
                 # The receiver can enqueue callbacks without waiting for them
                 receiver = threading.Thread(

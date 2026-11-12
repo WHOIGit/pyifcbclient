@@ -240,6 +240,13 @@ class IFCBClient:
             self._callbacks['ready'].append(callback)
             self._connection.dispatch(callback, self._connection.ready)
 
+    # Report attempt starts and scheduled retry delays through the dispatcher
+    def on_connecting(self, callback):
+        self._callbacks['connecting'].append(callback)
+
+    def on_retry(self, callback):
+        self._callbacks['retry'].append(callback)
+
     def on_started(self, callback):
         self._callbacks['started'].append(callback)
 
