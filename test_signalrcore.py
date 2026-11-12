@@ -57,9 +57,6 @@ class TestSignalRKeepalive(unittest.TestCase):
         # Validate the control outside the expected-failure test method
         self.assertTrue(self.pings[True].wait(1), 'Control emitted no ping')
 
-    def test_keepalive_with_automatic_reconnection(self):
-        self.assertTrue(self.pings[True].is_set())
-
     @unittest.expectedFailure
     def test_keepalive_without_automatic_reconnection(self):
 

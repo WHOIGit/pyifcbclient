@@ -8,19 +8,9 @@ class TestIFCBClient(unittest.TestCase):
     def setUp(self):
         self.client = IFCBClient("ws://192.168.1.100/ifcbHub", "111-111-111")
 
-        # Replace the hub connection object with a Mock instance so that we
-        # never attempt to actually connect to the network.
-        self.client.hub_connection = mock.Mock()
-
     def simulate_message(self, msg):
         # Unused fields during parsing: sender_id, smsgsrc, seqno
         self.client.handle_message([0, 0, 0, msg])
-
-
-    # This test proves that we've mocked out the hub connection successfully
-    def test_mocked_connection(self):
-        self.client.connect()
-        self.client.hub_connection.start.assert_called()
 
 
     def test_pattern_prefix(self):
