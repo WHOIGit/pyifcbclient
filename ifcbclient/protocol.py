@@ -8,21 +8,25 @@ fixed_length_responses = [
     ("client","disconnected"),
     ("client","enableroutines"),
     ("client","disableroutines"),
+    ("client","disableui"),
+    ("client","enableui"),
     ("syringetrack",float),
     ("movevalvestarted",str,str),
     ("movevalvefinished",str),
     ("triggerchanged",int,"processed",int,int,int),
     ("triggerchanged",int,"saved",int,int),
     ("triggerchanged",int,"skipped",int,int,int,int),
+    ("triggerchanged",int,"post",int,int),
     ("triggerimage",str),
+    ("triggerbigimage",str),
     ("graphchanged",float,float,float,float,int,int,int,float,float,float,float,str),
     ("file","start",str,int,str),
     ("file","end",str),
     ("valuechanged","acquisition","status",str),
     ("valuechanged","acquisition","started"),
     ("valuechanged","acquisition","stopped"),
+    ("valuechanged","acquisition","emergency"),
     ("valuechanged","pausestate",bool),
-    ("valuechanged","interactive","load",str),
     ("valuechanged","interactive","clear"),
     ("valuechanged","interactive","save"),
     ("valuechanged","interactive","started"),
@@ -50,6 +54,7 @@ fixed_length_responses = [
     ("valuechanged","switchbleachtoexhaust",bool),
     ("valuechanged","switchviewimages",bool),
     ("valuechanged","switchviewroisonly",bool),
+    ("valuechanged","switchsendtriggercontent",bool),
     ("valuechanged","switchviewtriggers",bool),
     ("valuechanged","switchviewgraphs",bool),
     ("valuechanged","switchviewactivity",bool),
@@ -88,7 +93,7 @@ fixed_length_responses = [
     ("valuechanged","setbeadsvolume",float),
     ("valuechanged","setbeadsinterval",int),
     ("valuechanged","setskipvolume",float),
-    ("valuechanged","setfastfactor",int),
+    ("valuechanged","setfastfactor",float),
     ("valuechanged","getenvironment",float,float),
     ("valuechanged","setdatafolder",str),
     ("valuechanged","setflashdelay",float),
@@ -121,7 +126,34 @@ fixed_length_responses = [
     ("valuechanged","setzoomsize",int,int),
     ("valuechanged","switchviewzoom",bool),
     ("valuechanged","hostversion",str),
+    ("valuechanged","setsyringezero",int),
+    ("valuechanged","setsyringemotorcurrent",int),
+    ("valuechanged","promptforfilecomment","start",str),
+    ("valuechanged","promptforfilecomment","countdown",int),
+    ("valuechanged","promptforfilecomment","end",int),
+    ("valuechanged","storevalue",str,str),
+    ("error","invaliddaqcommand",str),
+    ("error","invaliddaqparameter",str,str),
+    ("error","invalidroutine",str),
+    ("error","invalidcommand",str),
+    ("error","invalidgeneralcommand",str),
+    ("error","invalidupdatecommand",str),
+    ("error","invalidfilepath",str),
+    ("update","check",int),
+    ("update","check",int,str,str,str,str,str),
+    ("update","downloadprogress",int,int),
+    ("update","verify",int,str),
+    ("update","apply",int),
+    ("update","apply",int,str,str),
 ]
+
+
+# Interpret Host booleans without treating every nonempty string as true
+def _parse_bool(value):
+    value = value.lower()
+    if value not in ("true", "false"):
+        raise ValueError("Invalid boolean: " + repr(value))
+    return value == "true"
 
 
 def parse_response(m):
@@ -130,16 +162,25 @@ def parse_response(m):
     # Attempt to match the argument list against one of the candidate patterns
     matched = False
     for candidate in fixed_length_responses:
-        if len(candidate) != len(args):
+        if candidate[0] != args[0]:
+            continue
+
+        # A final text field may contain colons, including paths and comments
+        fields = args
+        if candidate[-1] is str and len(args) > len(candidate):
+            fields = m.split(":", len(candidate) - 1)
+        if len(candidate) != len(fields):
             continue
 
         parsed_args = []
         try:
-            for (arg, candarg) in zip(args, candidate):
+            for (arg, candarg) in zip(fields, candidate):
                 if isinstance(candarg, str):
                     if arg != candarg:
                         break
                     parsed_args.append(arg)
+                elif candarg is bool:
+                    parsed_args.append(_parse_bool(arg))
                 else:
                     parsed_args.append(candarg(arg))  # attempt type cast
             else:
@@ -162,22 +203,25 @@ def parse_response(m):
         parsed_args = args[:3] + [ int(args[3]), ":".join(args[4:]) ]
 
     elif args[:3] == ["valuechanged", "interactive", "load"]:
-        parsed_args = args[:3] + json.loads(":".join(args[3:]))
+        groups = json.loads(":".join(args[3:]))
+        if groups is None:
+            groups = []  # Host serializes an absent routine as null
+        parsed_args = args[:3] + groups
 
-    elif args[:2] == ["file", "list"]:
+    elif args[:2] in (["file", "list"], ["file", "beadslist"]):
         # Combine all arguments into a list
-        parsed_args = args[0:2] + [ args[2:] ]
+        parsed_args = args[0:2] + [args[2:] if args[2:] != [""] else []]
 
-    elif args[0] == "triggerrois":
+    elif args[0] in ("triggerrois", "triggerbigrois"):
         rois = []
         count = int(args[1])
         if len(args) != 2 + count * 3:
             raise ValueError("Incorrect number of ROIs")
         for i in range(count):
-            top, left = int(args[3*i+2]), int(args[3*i+3])
+            left, top = int(args[3*i+2]), int(args[3*i+3])
             image = base64.b64decode(args[3*i+4])
-            rois.append((top, left, image))
-        parsed_args = ["triggerrois", rois]
+            rois.append((left, top, image))
+        parsed_args = [args[0], rois]
 
     elif args[0] == "triggercontent":
         daq = {}
@@ -189,11 +233,30 @@ def parse_response(m):
         rois = []
         count = int(args[ri+1])
         for i in range(count):
-            top, left = int(args[3*i+ri+2]), int(args[3*i+ri+3])
+            left, top = int(args[3*i+ri+2]), int(args[3*i+ri+3])
             image = base64.b64decode(args[3*i+ri+4])
-            rois.append((top, left, image))
+            rois.append((left, top, image))
 
         parsed_args = ["triggercontent", daq, rois]
+
+    elif args[:2] == ["settings", "list"]:
+        count = int(args[2])
+        fields = args[3:]
+        if count == 0 and fields == [""]:
+            fields = []
+        if count < 0 or len(fields) != count * 3:
+            raise ValueError("Incorrect number of settings")
+
+        # Settings carry their own type codes and escape colons in values
+        converters = {"i": int, "d": float, "b": _parse_bool, "s": str}
+        settings = []
+        for i in range(0, len(fields), 3):
+            name, kind, value = fields[i:i + 3]
+            if kind not in converters:
+                raise ValueError("Unknown setting type: " + repr(kind))
+            value = converters[kind](value.replace("{|}", ":"))
+            settings.append((name, kind, value))
+        parsed_args = args[:2] + [settings]
 
     elif args[:3] == ["valuechanged", "interactive", "listgroups"]:
         # TODO: This complex message type is not handled
@@ -218,7 +281,7 @@ def parse_response(m):
 
 
     # Fix up some special arguments
-    if parsed_args[0] == "triggerimage":
+    if parsed_args[0] in ("triggerimage", "triggerbigimage"):
         # Base64 cannot contain the delimiter character, so we're safe
         parsed_args[1] = base64.b64decode(parsed_args[1])
 

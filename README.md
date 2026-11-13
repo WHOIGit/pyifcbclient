@@ -27,8 +27,8 @@ Before connecting, it is useful to attach event handlers for different kinds of 
 
 ```python
 # When acquisition is paused or resumed, the IFCB sends one of these messages:
-#     valuechanged:pausestate:0  # unpaused
-#     valuechanged:pausestate:1  # paused
+#     valuechanged:pausestate:false  # unpaused
+#     valuechanged:pausestate:true   # paused
 
 # Each field is split apart, converted to the native Python type, and passed to
 # our handler. Use underscores for parameters you don't care about.

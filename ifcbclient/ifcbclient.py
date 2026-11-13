@@ -50,6 +50,10 @@ class IFCBClient:
             )
 
         def message(response):
+
+            # Short server notices are followed by the disconnect event
+            if len(response) == 2:
+                return
             dispatch(self.handle_message, response)
             self._notify(connection, 'message', response)
 

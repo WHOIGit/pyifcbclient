@@ -102,25 +102,43 @@ class TestClientLifecycle(unittest.TestCase):
             ), 'client did not register')
         self.flush_callbacks(client)
 
-    def test_disabling_reconnection_stops_after_one_attempt(self):
+    @mock.patch('ifcbclient.connection.logging.Logger.exception')
+    @mock.patch('ifcbclient.ifcbclient.traceback.print_exc')
+    def test_host_unavailable_stops_cleanly_without_reconnection(
+            self, print_traceback, log_exception):
         client = self.make_client(auto_reconnect=False)
         closed = mock.Mock()
         connecting = mock.Mock()
         retry = mock.Mock()
+        raw = mock.Mock()
+        error = mock.Mock()
         client.on_close(closed)
         client.on_connecting(connecting)
         client.on_retry(retry)
+        client.on_any_message(raw)
+        client.on_error(error)
         client.connect(wait_until_ready=False)
         hub = self.next_hub()
-        hub.emit('disconnect', ['host unavailable'])
+
+        # Follow the Server's response to an unavailable startAsClient request
+        hub.emit('open')
+        self.flush_callbacks(client)
+        hub.send.assert_called_once_with('startAsClient', ['111-111-152'])
+        hub.emit('messageRelayed', ['111-111-152', 'Host Unavailable.'])
+        self.flush_callbacks(client)
+        raw.assert_not_called()
+        hub.emit('disconnect', [])
         client._connection.worker.join(timeout=1)
         self.assertFalse(client._connection.worker.is_alive())
         self.assertTrue(hub.cleaned.is_set())
         self.assertEqual(len(self.hubs), 1)
         self.flush_callbacks(client)
-        closed.assert_called_once_with(['host unavailable'])
+        closed.assert_called_once_with([])
         connecting.assert_called_once_with()
         retry.assert_not_called()
+        error.assert_not_called()
+        print_traceback.assert_not_called()
+        log_exception.assert_not_called()
 
     def test_registration_grants_readiness_after_initialization(self):
         client = self.make_client(auto_reconnect=False)
