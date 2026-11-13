@@ -9,28 +9,22 @@ from ifcbclient import IFCBClient
 from ifcbclient import connection
 
 
-# Model one SignalR attempt, with callbacks retained after its retirement
+# Model one transport attempt, retaining callbacks after retirement
 class FakeHub:
-    def __init__(self, started):
+    def __init__(self, started, serial):
         self.events = defaultdict(list)
         self.send = mock.Mock()
-        self.start = mock.Mock(side_effect=lambda: started.put(self))
+        self.connect = mock.Mock(side_effect=lambda: started.put(self))
         self.cleaned = threading.Event()
-        self.transport = mock.Mock()
-        self.transport.manually_closing = False
-        self.transport.on_socket_close.side_effect = self.close_transport
+        self.serial = serial
+        self.failure = None
+        self.stop = mock.Mock(side_effect=self.close_transport)
+
+    def relay_message_to_host(self, message):
+        self.send('relayMessageToHost', [self.serial, message])
 
     def on(self, event, callback):
         self.events[event].append(callback)
-
-    def on_open(self, callback):
-        self.on('open', callback)
-
-    def on_close(self, callback):
-        self.on('close', callback)
-
-    def on_error(self, callback):
-        self.on('error', callback)
 
     def emit(self, event, *args):
         for callback in tuple(self.events[event]):
@@ -48,26 +42,22 @@ class TestClientLifecycle(unittest.TestCase):
         self.clients = []
 
         # Every retry builds a new hub, retaining callbacks on the old one
-        self.builder = mock.Mock()
-        self.builder.with_url.return_value = self.builder
-        self.builder.configure_logging.return_value = self.builder
-        self.builder.build.side_effect = self.build_hub
+        self.factory = mock.Mock(side_effect=self.build_hub)
         patches = [
             mock.patch(
-                'ifcbclient.ifcbclient.HubConnectionBuilder',
-                return_value=self.builder,
+                'ifcbclient.ifcbclient.SignalRClient',
+                self.factory,
             ),
             mock.patch.object(connection, 'RETRY_INTERVAL', 0.01),
             mock.patch.object(connection, 'MAX_RETRY_INTERVAL', 0.02),
-            mock.patch.object(connection, 'REGISTRATION_TIMEOUT', 0.2),
         ]
         for patcher in patches:
             patcher.start()
             self.addCleanup(patcher.stop)
         self.addCleanup(self.stop_clients)
 
-    def build_hub(self):
-        hub = FakeHub(self.started)
+    def build_hub(self, server, serial):
+        hub = FakeHub(self.started, serial)
         self.hubs.append(hub)
         return hub
 
@@ -102,7 +92,7 @@ class TestClientLifecycle(unittest.TestCase):
     def register(self, hub):
         hub.emit('open')
         hub.emit('startedAsClient', [])
-        client = next(c for c in self.clients if c.hub_connection is hub)
+        client = next(c for c in self.clients if c._connection.client is hub)
         self.wait_registered(client)
 
     def wait_registered(self, client):
@@ -120,7 +110,7 @@ class TestClientLifecycle(unittest.TestCase):
         client.on_close(closed)
         client.on_connecting(connecting)
         client.on_retry(retry)
-        client.connect(background=True)
+        client.connect(wait_until_ready=False)
         hub = self.next_hub()
         hub.emit('disconnect', ['host unavailable'])
         client._connection.worker.join(timeout=1)
@@ -131,7 +121,6 @@ class TestClientLifecycle(unittest.TestCase):
         closed.assert_called_once_with(['host unavailable'])
         connecting.assert_called_once_with()
         retry.assert_not_called()
-        self.builder.with_automatic_reconnect.assert_not_called()
 
     def test_registration_grants_readiness_after_initialization(self):
         client = self.make_client(auto_reconnect=False)
@@ -141,8 +130,11 @@ class TestClientLifecycle(unittest.TestCase):
         client.on_ready(ready.append)
         client.on_started(registered)
         client.on_reconnect(reconnected)
-        client.connect(background=True)
+        client.connect(wait_until_ready=False)
         hub = self.next_hub()
+        caller, returned, result = self.run_in_thread(
+            lambda: (client.connect(), hub.send.call_args)
+        )
         hub.emit('open')
         hub.emit('heartbeat', [123])
         self.flush_callbacks(client)
@@ -152,6 +144,11 @@ class TestClientLifecycle(unittest.TestCase):
 
         hub.emit('startedAsClient', [])
         self.wait_registered(client)
+        self.assertTrue(returned.wait(1), 'connect did not finish')
+        caller.join(1)
+        self.assertEqual(result, [(None, mock.call(
+            'relayMessageToHost', ['111-111-152', 'refresh'],
+        ))])
 
         # A repeated acknowledgement must not initialize or notify twice
         hub.emit('startedAsClient', [])
@@ -179,7 +176,7 @@ class TestClientLifecycle(unittest.TestCase):
         client.on_ready(ready.append)
         client.on_started(registered)
         client.on_error(error)
-        client.connect(background=True)
+        client.connect(wait_until_ready=False)
         hub = self.next_hub()
         hub.emit('open')
         self.flush_callbacks(client)
@@ -195,7 +192,7 @@ class TestClientLifecycle(unittest.TestCase):
         client = self.make_client(auto_reconnect=False)
         error = mock.Mock()
         client.on_error(error)
-        client.connect(background=True)
+        client.connect(wait_until_ready=False)
         hub = self.next_hub()
         failure = OSError('startAsClient failed')
 
@@ -229,14 +226,13 @@ class TestClientLifecycle(unittest.TestCase):
         client.on_close(closed)
         client.on(('syringetrack',), parsed)
         client.on_any_message(raw)
-        client.connect(background=True)
+        client.connect(wait_until_ready=False)
         first = self.next_hub()
         self.register(first)
         first.emit('close')
         second = self.next_hub()
         self.assertIsNot(first, second)
         self.assertTrue(first.cleaned.is_set())
-        self.builder.with_automatic_reconnect.assert_not_called()
         self.flush_callbacks(client)
         self.assertEqual(ready, [False, True, False])
         self.assertEqual(connecting.call_count, 2)
@@ -277,14 +273,77 @@ class TestClientLifecycle(unittest.TestCase):
         parsed.assert_called_once_with('syringetrack', 2.5)
         self.assertIsNone(client.relay_message_to_host('refresh', timeout=0))
 
-    def test_initial_failed_attempt_is_not_a_reconnection(self):
+    def test_connect_wait_option_survives_initial_failure(self):
         client = self.make_client()
         reconnected = mock.Mock()
+        errors = queue.Queue()
+        entered = threading.Event()
+        release = threading.Event()
+        failure = OSError('initial connection failed')
         client.on_reconnect(reconnected)
-        client.connect(background=True)
-        self.next_hub().emit('close')
+        client.on_error(errors.put)
+
+        # Hold the first startup open until the public connect call returns
+        def fail():
+            entered.set()
+            if not release.wait(3):
+                raise AssertionError('startup was not released')
+            raise failure
+
+        def build(server, serial):
+            self.factory.side_effect = self.build_hub
+            hub = self.build_hub(server, serial)
+            hub.connect.side_effect = fail
+            return hub
+
+        self.factory.side_effect = build
+        caller, returned, result = self.run_in_thread(
+            lambda: client.connect(wait_until_ready=False)
+        )
+        waiter, registered, wait_result = self.run_in_thread(
+            lambda: (client.connect(), client._connection.ready)
+        )
+        try:
+            self.assertTrue(entered.wait(1), 'startup did not begin')
+            self.assertTrue(returned.wait(1), 'connect waited for startup')
+            self.assertEqual(result, [None])
+        finally:
+            release.set()
+            caller.join(1)
+        self.assertFalse(caller.is_alive())
+
+        # Initial failure is reported and retried without a reconnect event
         self.register(self.next_hub())
+        self.assertIs(errors.get(timeout=1), failure)
+        self.assertTrue(self.hubs[0].cleaned.is_set())
+        self.assertTrue(registered.wait(1), 'retry did not release connect')
+        waiter.join(1)
+        self.assertEqual(wait_result, [(None, True)])
         reconnected.assert_not_called()
+
+    def test_stop_releases_connect_waiter(self):
+        client = self.make_client()
+        caller, returned, result = self.run_in_thread(client.connect)
+        self.next_hub()
+        client.stop()
+        self.assertTrue(returned.wait(1), 'stop did not release connect')
+        caller.join(1)
+        self.assertFalse(caller.is_alive())
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], ConnectionError)
+
+    def test_connect_cannot_wait_on_callback_dispatcher(self):
+        client = self.make_client()
+        finished = threading.Event()
+
+        def connect(_):
+            with self.assertRaisesRegex(RuntimeError, 'callback'):
+                client.connect()
+            finished.set()
+
+        client.on_ready(connect)
+        self.assertTrue(finished.wait(1), 'callback blocked on readiness')
+        self.assertIsNone(client._connection.worker)
 
     def test_send_failure_clears_readiness_and_reports_failure(self):
         client = self.make_client()
@@ -292,7 +351,7 @@ class TestClientLifecycle(unittest.TestCase):
         ready = []
         client.on_error(error)
         client.on_ready(ready.append)
-        client.connect(background=True)
+        client.connect(wait_until_ready=False)
         hub = self.next_hub()
         self.register(hub)
         hub.send.side_effect = OSError('broken socket')
@@ -308,7 +367,7 @@ class TestClientLifecycle(unittest.TestCase):
 
     def test_synchronous_close_during_send_reports_failure(self):
         client = self.make_client(auto_reconnect=False)
-        client.connect(background=True)
+        client.connect(wait_until_ready=False)
         hub = self.next_hub()
         self.register(hub)
         hub.send.side_effect = lambda *_: hub.emit('close')
@@ -316,11 +375,12 @@ class TestClientLifecycle(unittest.TestCase):
             client.relay_message_to_host('sample', timeout=0)
         self.assertTrue(hub.cleaned.wait(1))
 
+    @mock.patch.object(connection, 'REGISTRATION_TIMEOUT', 0.2)
     def test_missing_registration_times_out_without_retry_when_disabled(self):
         client = self.make_client(auto_reconnect=False)
         error = mock.Mock()
         client.on_error(error)
-        client.connect(background=True)
+        caller, returned, result = self.run_in_thread(client.connect)
         hub = self.next_hub()
         hub.emit('open')
         hub.emit('heartbeat', [123])
@@ -333,6 +393,11 @@ class TestClientLifecycle(unittest.TestCase):
         self.assertIsInstance(error.call_args.args[0], TimeoutError)
         self.assertEqual(str(error.call_args.args[0]),
                          'IFCB registration timed out')
+        self.assertTrue(returned.wait(1), 'failure did not release connect')
+        caller.join(1)
+        self.assertFalse(caller.is_alive())
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], ConnectionError)
 
     def test_stop_is_local_idempotent_and_reports_close_once(self):
         client = self.make_client()
@@ -342,7 +407,7 @@ class TestClientLifecycle(unittest.TestCase):
         client.on_close(closed)
         client.on_retry(retry)
         client.on_ready(ready.append)
-        client.connect(background=True)
+        client.connect(wait_until_ready=False)
         hub = self.next_hub()
         self.register(hub)
         hub.send.reset_mock()
@@ -350,8 +415,7 @@ class TestClientLifecycle(unittest.TestCase):
         client.stop()
         client.disconnect()
         self.assertTrue(hub.cleaned.is_set())
-        hub.transport._client.dispose.assert_called_once_with()
-        hub.transport.connection_checker.stop.assert_called_once_with()
+        hub.stop.assert_called_once_with()
         hub.send.assert_not_called()
         self.flush_callbacks(client)
         closed.assert_called_once_with()
@@ -364,11 +428,11 @@ class TestClientLifecycle(unittest.TestCase):
         client = self.make_client(auto_reconnect=False)
         registered = mock.Mock()
         client.on_started(registered)
-        client.connect(background=True)
+        client.connect(wait_until_ready=False)
         first = self.next_hub()
         self.register(first)
         client.stop()
-        client.connect(background=True)
+        client.connect(wait_until_ready=False)
         second = self.next_hub()
         self.register(second)
         self.assertIsNot(first, second)
@@ -383,7 +447,7 @@ class TestClientLifecycle(unittest.TestCase):
         errors = queue.Queue()
         client.on_close(closed.set)
         client.on_error(errors.put)
-        client.connect(background=True)
+        client.connect(wait_until_ready=False)
         hub = self.next_hub()
         self.register(hub)
         manager = client._connection
@@ -393,8 +457,9 @@ class TestClientLifecycle(unittest.TestCase):
         def stop_checker():
             cleaning.set()
             release.wait(3)
+            hub.close_transport()
 
-        hub.transport.connection_checker.stop.side_effect = stop_checker
+        hub.stop.side_effect = stop_checker
         closer = threading.Thread(target=client.stop, daemon=True)
         closer.start()
         try:
@@ -416,7 +481,7 @@ class TestClientLifecycle(unittest.TestCase):
 
     def test_disconnect_sends_farewell_then_cleans_up(self):
         client = self.make_client(auto_reconnect=False)
-        client.connect(background=True)
+        client.connect(wait_until_ready=False)
         hub = self.next_hub()
         self.register(hub)
         hub.send.reset_mock()
@@ -447,7 +512,7 @@ class TestClientLifecycle(unittest.TestCase):
                     stopped.set()
 
                 getattr(client, subscribe)(stop)
-                client.connect(background=True)
+                client.connect(wait_until_ready=False)
                 hub = self.next_hub()
                 hub.emit('open')
                 if event != 'startedAsClient':
@@ -475,7 +540,7 @@ class TestClientLifecycle(unittest.TestCase):
         second = mock.Mock()
         client.on_started(first)
         client.on_started(second)
-        client.connect(background=True)
+        client.connect(wait_until_ready=False)
         hub = self.next_hub()
         with self.assertLogs('ifcbclient', level='ERROR'):
             self.register(hub)
@@ -486,7 +551,7 @@ class TestClientLifecycle(unittest.TestCase):
 
     def test_stop_from_initial_readiness_callback_does_not_deadlock(self):
         client = self.make_client(auto_reconnect=False)
-        client.connect(background=True)
+        client.connect(wait_until_ready=False)
         hub = self.next_hub()
         self.register(hub)
         stopped = threading.Event()
@@ -506,7 +571,7 @@ class TestClientLifecycle(unittest.TestCase):
         client.on_ready(lambda value: client.stop() if value else None)
         client.on_ready(ready.append)
         client.on_started(registered)
-        client.connect(background=True)
+        client.connect(wait_until_ready=False)
         hub = self.next_hub()
         hub.emit('open')
         hub.emit('startedAsClient', [])
@@ -523,7 +588,7 @@ class TestClientLifecycle(unittest.TestCase):
         raw = mock.Mock()
         client.on(('syringetrack',), lambda *_: client.stop())
         client.on_any_message(raw)
-        client.connect(background=True)
+        client.connect(wait_until_ready=False)
         hub = self.next_hub()
         self.register(hub)
         receiver = threading.Thread(
@@ -538,3 +603,63 @@ class TestClientLifecycle(unittest.TestCase):
         self.assertTrue(hub.cleaned.wait(1))
         self.flush_callbacks(client)
         raw.assert_not_called()
+
+    def run_in_thread(self, callback):
+        finished = threading.Event()
+        result = []
+
+        def run():
+            try:
+                result.append(callback())
+            except Exception as error:
+                result.append(error)
+            finally:
+                finished.set()
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        return thread, finished, result
+
+    def test_callback_can_wait_for_another_thread_to_send(self):
+        client = self.make_client()
+        client.connect(wait_until_ready=False)
+        hub = self.next_hub()
+        self.register(hub)
+        callback_done = threading.Event()
+        completed_in_callback = []
+        send_results = []
+
+        def callback(_):
+            thread, finished, result = self.run_in_thread(
+                lambda: client.relay_message_to_host('refresh', timeout=0)
+            )
+            completed_in_callback.append(finished.wait(1))
+            send_results.extend(result)
+            callback_done.set()
+
+        client.on_any_message(callback)
+        hub.emit('messageRelayed', [0, 0, 0, 'syringetrack:1.5'])
+        self.assertTrue(callback_done.wait(2))
+        self.assertEqual(completed_in_callback, [True])
+        self.assertEqual(send_results, [None])
+
+    def test_callback_can_wait_for_another_thread_to_stop(self):
+        client = self.make_client()
+        client.connect(wait_until_ready=False)
+        hub = self.next_hub()
+        self.register(hub)
+        callback_done = threading.Event()
+        completed_in_callback = []
+        stop_results = []
+
+        def callback(_):
+            thread, finished, result = self.run_in_thread(client.stop)
+            completed_in_callback.append(finished.wait(1))
+            stop_results.extend(result)
+            callback_done.set()
+
+        client.on_any_message(callback)
+        hub.emit('messageRelayed', [0, 0, 0, 'syringetrack:1.5'])
+        self.assertTrue(callback_done.wait(2))
+        self.assertEqual(completed_in_callback, [True])
+        self.assertEqual(stop_results, [None])

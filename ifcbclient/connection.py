@@ -6,7 +6,7 @@ IFCB connection lifecycle.
              v
     +--> CONNECTING -- failure -----------------------------+
     |        |                                              |
-    |        | connect() returns                            |
+    |        | transport connected                          |
     |        v                                              |
     |    REGISTERING -- 10s timeout / close / error --------+
     |        |                                              |
@@ -31,7 +31,6 @@ import threading
 import time
 
 from collections import deque
-from concurrent.futures import Future
 
 
 # The IFCB server broadcasts a heartbeat every 20 seconds
@@ -59,31 +58,34 @@ class ConnectionManager:
         self.ever_ready = False
         self.retry = RETRY_INTERVAL
 
-    def start(self, background=False):
+    def start(self, wait_until_ready=False):
         with self.condition:
+
+            # Registration must be able to run on the callback dispatcher
+            if (wait_until_ready and not self.ready
+                    and threading.current_thread() is self.dispatcher):
+                raise RuntimeError('Cannot wait for readiness in a callback')
 
             # Never overlap workers, including an unfinished shutdown
             if self.worker is not None and self.worker.is_alive():
                 if self.stopping:
                     raise RuntimeError('Previous IFCB connection is stopping')
-                return
-            self.stopping = False
-            self.ever_ready = False
-            self.retry = RETRY_INTERVAL
-            startup = Future()
-            worker = threading.Thread(
-                target=self.run, args=(background, startup), daemon=True
-            )
-            self.worker = worker
-            worker.start()
+            else:
+                self.stopping = False
+                self.ever_ready = False
+                self.retry = RETRY_INTERVAL
+                self.worker = threading.Thread(target=self.run, daemon=True)
+                self.worker.start()
 
-        # A failed caller must never close a subsequently started worker
-        if not background:
-            try:
-                startup.result()
-            except Exception:
-                worker.join(timeout=5)
-                raise
+            # Wait through retries, but stop waiting when this worker retires
+            if wait_until_ready:
+                worker = self.worker
+                self.condition.wait_for(
+                    lambda: self.ready or self.stopping
+                    or self.worker is not worker
+                )
+                if self.worker is not worker or not self.ready:
+                    raise ConnectionError('IFCB stopped before becoming ready')
 
     # Queue observers in state-transition order and bind them to their attempt
     def dispatch(self, callback, *args, client=None, active=False):
@@ -216,19 +218,15 @@ class ConnectionManager:
         if worker is not None and worker is not threading.current_thread():
             worker.join(timeout=5)
 
-    def run(self, background, startup):
+    def run(self):
         try:
-            self._run(background, startup)
+            self._run()
         finally:
             with self.condition:
                 self.stopping = True
-                if not startup.done():
-                    startup.set_exception(
-                        ConnectionError('IFCB client stopped')
-                    )
                 self.condition.notify_all()
 
-    def _run(self, background, startup):
+    def _run(self):
         while True:
 
             # Begin a new connection attempt unless shutdown was requested
@@ -249,8 +247,6 @@ class ConnectionManager:
                 client.connect()
 
                 with self.condition:
-                    if not startup.done():
-                        startup.set_result(None)
 
                     # An open transport still needs IFCB registration
                     self.condition.wait_for(
@@ -274,10 +270,6 @@ class ConnectionManager:
                         self.condition.wait(timeout=1.0)
             except Exception as error:
                 with self.condition:
-                    if not startup.done():
-                        if not background:
-                            self.stopping = True
-                        startup.set_exception(error)
                     self._failed(error)
             finally:
 

@@ -2,7 +2,6 @@ import threading
 import time
 import unittest
 
-from concurrent.futures import Future
 from unittest.mock import patch
 
 from ifcbclient import connection
@@ -50,7 +49,6 @@ class TestConnectionManager(unittest.TestCase):
         self.patches = [
             patch.object(connection, 'RETRY_INTERVAL', 0.02),
             patch.object(connection, 'MAX_RETRY_INTERVAL', 0.05),
-            patch.object(connection, 'REGISTRATION_TIMEOUT', 0.2),
         ]
         for patcher in self.patches:
             patcher.start()
@@ -63,7 +61,6 @@ class TestConnectionManager(unittest.TestCase):
         )
         self.status.append(self.manager.ready)
         self.manager.start()
-        self.worker = self.manager.worker
         self.addCleanup(self.shutdown)
         self.first = self.await_client(0)
 
@@ -92,9 +89,10 @@ class TestConnectionManager(unittest.TestCase):
         return client
 
     def shutdown(self):
+        worker = self.manager.worker
         self.manager.close()
-        self.worker.join(timeout=2)
-        self.assertFalse(self.worker.is_alive(), 'manager did not shut down')
+        worker.join(timeout=2)
+        self.assertFalse(worker.is_alive(), 'manager did not shut down')
 
     def advance(self, seconds):
         with self.manager.condition:
@@ -140,21 +138,18 @@ class TestConnectionManager(unittest.TestCase):
 
     def test_retry_delay_is_capped_and_registration_resets_it(self):
         self.first.disconnected()
-        for index, delay in [(1, 0.03), (2, 0.045), (3, 0.05)]:
+        for index in range(1, 5):
             client = self.await_client(index)
-            self.assertAlmostEqual(self.manager.retry, delay)
-            if index < 3:
+            if index < 4:
                 client.disconnected()
 
         # Even an immediately lost registration resets accumulated backoff
         client.registered([])
-        self.assertEqual(self.manager.retry, 0.02)
         client.disconnected()
-        self.await_client(4)
-        self.assertAlmostEqual(self.manager.retry, 0.03)
-        self.assertEqual(len(self.retry_delays), 4)
+        self.await_client(5)
+        self.assertEqual(len(self.retry_delays), 5)
         for actual, expected in zip(self.retry_delays,
-                                    [0.02, 0.03, 0.045, 0.02]):
+                                    [0.02, 0.03, 0.045, 0.05, 0.02]):
             self.assertAlmostEqual(actual, expected)
 
     def test_constructor_failure_retries_and_shutdown_remains_available(self):
@@ -192,64 +187,3 @@ class TestConnectionManager(unittest.TestCase):
         self.assertEqual(self.status, [False])
         recovered.registered([])
         self.assertIsNone(self.manager.send('recovered', timeout=0))
-
-    def test_failed_connect_cannot_stop_a_concurrent_replacement(self):
-        self.shutdown()
-        failure = OSError('first connection refused')
-        paused = threading.Event()
-        resume = threading.Event()
-        errors = []
-        make_connection = self._make_connection
-
-        # Pause the failed caller after its outcome, while cleanup can finish
-        class DelayedFailure(Future):
-            def result(self, timeout=None):
-                try:
-                    return super().result(timeout)
-                except OSError:
-                    paused.set()
-                    if not resume.wait(2):
-                        raise AssertionError('failed caller was not released')
-                    raise
-
-        def fail_once():
-            client = make_connection()
-
-            def fail():
-                client.started.set()
-                raise failure
-
-            client.connect = fail
-            self._make_connection = make_connection
-            return client
-
-        def start():
-            try:
-                self.manager.start()
-            except Exception as error:
-                errors.append(error)
-
-        self._make_connection = fail_once
-        caller = threading.Thread(target=start, daemon=True)
-        with patch.object(connection, 'Future',
-                          side_effect=[DelayedFailure(), Future()]):
-            caller.start()
-            try:
-                self.assertTrue(paused.wait(1))
-                failed_worker = self.manager.worker
-                failed_worker.join(timeout=1)
-                self.assertFalse(failed_worker.is_alive())
-
-                # Start and register a replacement before the caller resumes
-                self.manager.start()
-                replacement = self.await_client(2)
-                replacement.registered([])
-                resume.set()
-                caller.join(timeout=1)
-                self.assertFalse(caller.is_alive())
-                self.assertEqual(errors, [failure])
-                self.assertFalse(replacement.stopped.is_set())
-                self.assertIsNone(self.manager.send('still ready', timeout=0))
-            finally:
-                resume.set()
-                caller.join(timeout=1)

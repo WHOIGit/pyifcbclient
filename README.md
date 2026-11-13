@@ -7,7 +7,7 @@ This repository implements an unofficial API client for the [McLane Research Lab
 
 ## Installation
 
-The latest version of this package can be installed using `pip`:
+Python 3.8 or newer is required. Install the latest version using `pip`:
 
     pip install git+https://github.com/WHOIGit/pyifcbclient.git
 
@@ -57,9 +57,10 @@ client.unregister(handler_id)
 
 ### Connecting and Disconnecting
 
-Connecting the client starts a background thread for communicating with the IFCB. (Be sure to keep your main thread alive, or the program will terminate.)
+Connecting the client starts background threads for communicating with the IFCB. (Be sure to keep your main thread alive, or the program will terminate.)
 
 ```python
+client.on_ready(lambda ready: print("Ready:", ready))
 client.connect()
 client.disconnect()
 ```

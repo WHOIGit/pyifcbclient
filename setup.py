@@ -10,7 +10,7 @@ setup(
     author_email="rgovostes@whoi.edu",
     url="https://github.com/WHOIGit/pyifcbclient",
     packages=["ifcbclient"],
+    python_requires=">=3.8",
 
-    # Transport cleanup relies on this version's private implementation
-    install_requires=["signalrcore==1.0.2"],
+    install_requires=["websockets>=13.1,<15"],
 )
