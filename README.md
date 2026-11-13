@@ -73,3 +73,13 @@ Commands can be sent to the IFCB. Currently, commands must be passed as strings:
 ```python
 client.relay_message_to_host("routine:runsample")
 ```
+
+
+## Tests
+
+From the repository root:
+
+    python -m pip install -e .
+    python -m unittest
+
+To run one module: `python -m unittest tests.test_protocol`.
